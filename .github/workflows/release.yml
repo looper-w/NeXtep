@@ -29,8 +29,14 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Inspect Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo '--- build-tools ---'; ls "$SDK/build-tools" 2>/dev/null || true
+          echo '--- platforms ---'; ls "$SDK/platforms" 2>/dev/null || true
+          echo '--- licenses ---'; ls "$SDK/licenses" 2>/dev/null || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

@@ -2,9 +2,14 @@ name: Build Release APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev-panes, feat-corner-gesture]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build (branch or tag)"
+        required: false
+        default: ""
 
 concurrency:
   group: build-release-${{ github.ref }}

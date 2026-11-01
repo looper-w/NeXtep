@@ -59,38 +59,39 @@ jobs:
           echo "path=$APK" >> "$GITHUB_OUTPUT"
           echo "Found $APK"
 
-      - name: Decode signing keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nextep.jks"
+      - name: Sign APK (falls back to unsigned)
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
-
-      - name: Sign APK
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        id: signed
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'nextep' }}
         run: |
-          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          APKSIGNER=$(find "$SDK/build-tools" -name apksigner -type f | sort -V | tail -n 1)
-          if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner not found under $SDK/build-tools"; exit 1
+          set -eo pipefail
+          APK="${{ steps.apk.outputs.path }}"
+          OUTDIR=app/build/outputs/apk/release
+          NAME="NeXtep-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}"
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::KEYSTORE_BASE64 secret is not set; uploading UNSIGNED APK"
+            cp "$APK" "$OUTDIR/$NAME-unsigned.apk"
+            exit 0
           fi
-          OUT=app/build/outputs/apk/release/NeXtep-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}.apk
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nextep.jks"
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          APKSIGNER=$(find "$SDK/build-tools" -name apksigner -type f | sort -V | tail -n 1 || true)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $SDK/build-tools"
+            exit 1
+          fi
+          OUT="$OUTDIR/$NAME.apk"
           "$APKSIGNER" sign \
             --ks "$RUNNER_TEMP/nextep.jks" \
-            --ks-key-alias "${{ secrets.KEY_ALIAS || 'nextep' }}" \
-            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
             --out "$OUT" \
-            "${{ steps.apk.outputs.path }}"
-          "$APKSIGNER" verify --print-certs "$OUT"
-          echo "path=$OUT" >> "$GITHUB_OUTPUT"
-
-      - name: Name unsigned APK
-        if: ${{ secrets.KEYSTORE_BASE64 == '' }}
-        run: |
-          echo "::warning::KEYSTORE_BASE64 secret is not set; uploading UNSIGNED APK"
-          cp "${{ steps.apk.outputs.path }}" \
-            "app/build/outputs/apk/release/NeXtep-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}-unsigned.apk"
+            "$APK"
+          "$APKSIGNER" verify "$OUT"
+          echo "Signed APK: $OUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

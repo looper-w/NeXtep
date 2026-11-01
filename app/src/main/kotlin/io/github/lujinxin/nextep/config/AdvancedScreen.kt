@@ -38,6 +38,8 @@ internal object AdvancedScreen {
             " --ez ${TriggerBroadcastContract.EXTRA_REQUESTED_ACTIVE}"
         val enterCommand = "$setCommand true"
         val exitCommand = "$setCommand false"
+        val toggleCommand = "am start -n ${TriggerBroadcastContract.MODULE_PACKAGE}" +
+            "/.trigger.WorkspaceToggleActivity"
 
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -89,6 +91,7 @@ internal object AdvancedScreen {
                     LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(24) })
             val commands = listOf(
+                Triple(R.string.advanced_toggle_title, R.string.advanced_toggle_summary, toggleCommand),
                 Triple(R.string.advanced_enter_title, R.string.advanced_enter_summary, enterCommand),
                 Triple(R.string.advanced_exit_title, R.string.advanced_exit_summary, exitCommand),
                 Triple(R.string.advanced_query_title, R.string.advanced_query_summary, queryCommand),

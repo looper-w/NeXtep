@@ -43,6 +43,15 @@
             android:exported="false"
             android:label="@string/energy_monitor_title" />
 
+        <!-- Headless entry for external automation: finishes once the coordinated request completes. -->
+        <activity
+            android:name=".trigger.WorkspaceToggleActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <!-- Finish the icon entry in its own task before showing the real settings activity. -->
         <activity
             android:name=".icons.LauncherEntryActivity"

@@ -1,0 +1,122 @@
+name: Build Release APK
+
+on:
+  push:
+    branches: [main, dev-panes, feat-corner-gesture]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build (branch or tag)"
+        required: false
+        default: ""
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Assemble and sign release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Inspect Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo '--- build-tools ---'; ls "$SDK/build-tools" 2>/dev/null || true
+          echo '--- platforms ---'; ls "$SDK/platforms" 2>/dev/null || true
+          echo '--- licenses ---'; ls "$SDK/licenses" 2>/dev/null || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Resolve version
+        id: meta
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          echo "version=${VERSION:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building NeXtep ${VERSION:-unknown} (${GITHUB_REF_NAME})"
+
+      - name: Assemble release
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find app/build/outputs -type f -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then echo "::error::No APK produced"; exit 1; fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "Found $APK"
+
+      - name: Sign APK (falls back to unsigned)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'nextep' }}
+        run: |
+          set -eo pipefail
+          APK="${{ steps.apk.outputs.path }}"
+          OUTDIR=app/build/outputs/apk/release
+          NAME="NeXtep-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}"
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::KEYSTORE_BASE64 secret is not set; uploading UNSIGNED APK"
+            cp "$APK" "$OUTDIR/$NAME-unsigned.apk"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nextep.jks"
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          APKSIGNER=$(find "$SDK/build-tools" -name apksigner -type f | sort -V | tail -n 1 || true)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $SDK/build-tools"
+            exit 1
+          fi
+          OUT="$OUTDIR/$NAME.apk"
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/nextep.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$OUT" \
+            "$APK"
+          "$APKSIGNER" verify "$OUT"
+          echo "Signed APK: $OUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeXtep-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.sha }}
+          path: app/build/outputs/apk/release/NeXtep-*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NeXtep ${{ steps.meta.outputs.version }}
+          draft: false
+          prerelease: false
+          files: app/build/outputs/apk/release/NeXtep-*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
